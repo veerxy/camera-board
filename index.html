@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>课堂学生摄像头看板</title>
+<script src="https://unpkg.com/peerjs@1/dist/peerjs.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{padding:16px;font-family:system-ui}
+#videoWrap{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:20px}
+video{width:100%;border:2px solid #4488dd;border-radius:8px;background:#000}
+.form-box{margin:10px 0}
+input{padding:8px;font-size:16px;width:240px;margin-right:8px}
+button{padding:8px 16px;font-size:16px;cursor:pointer}
+.tip{margin:8px 0;color:#555}
+</style>
+</head>
+<body>
+<div class="tip" id="roleTip"></div>
+<div class="form-box">
+  <input id="pwdInput" placeholder="输入课堂密码">
+  <button id="joinBtn">进入课堂</button>
+</div>
+<div id="videoWrap"></div>
+
+<script>
+const urlParams = new URLSearchParams(location.search);
+const ROOM_ID = urlParams.get('room') || "defaultroom";
+const MAX_STREAM = 8;
+let localStream = null;
+let peer = null;
+let remoteStreamsCount = 0;
+const peers = {};
+
+const videoWrap = document.getElementById('videoWrap');
+const roleTip = document.getElementById('roleTip');
+const joinBtn = document.getElementById('joinBtn');
+const pwdInput = document.getElementById('pwdInput');
+
+function initPeer(){
+  peer = new Peer();
+  peer.on('open', function(myPeerId){
+    peer.on('call', function(call){
+      if(remoteStreamsCount >= MAX_STREAM){
+        call.close();
+        alert("课堂机位已满，最多8名学生");
+        return;
+      }
+      call.answer();
+      const videoDom = document.createElement('video');
+      videoDom.autoplay = true;
+      videoDom.playsInline = true;
+      videoWrap.appendChild(videoDom);
+      call.on('stream', function(remoteStream){
+        videoDom.srcObject = remoteStream;
+        remoteStreamsCount++;
+      })
+      call.on('close',()=>{
+        videoDom.remove();
+        remoteStreamsCount--;
+      })
+      peers[call.peer] = call;
+    })
+  })
+}
+
+async function studentStart(pwd){
+  if(!pwd){
+    alert("请输入课堂密码");
+    return;
+  }
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+    const teacherPeerId = ROOM_ID + "_teacher";
+    const call = peer.call(teacherPeerId, localStream);
+    roleTip.innerText="✅已接入摄像头，等待老师接收";
+  }catch(err){
+    alert("摄像头权限被拒绝，请在浏览器允许摄像头权限");
+    console.error(err);
+  }
+}
+
+function teacherStart(){
+  roleTip.innerText="👨‍🏫教师看板，等待学生接入，最多8路画面";
+  const teacherPeerId = ROOM_ID + "_teacher";
+  peer = new Peer(teacherPeerId);
+  peer.on('open', ()=>{
+    peer.on('call', function(call){
+      if(remoteStreamsCount >= MAX_STREAM){
+        call.close();
+        alert("课堂机位已满");
+        return;
+      }
+      call.answer();
+      const videoDom = document.createElement('video');
+      videoDom.autoplay = true;
+      videoDom.playsInline = true;
+      videoWrap.appendChild(videoDom);
+      call.on('stream', function(remoteStream){
+        videoDom.srcObject = remoteStream;
+        remoteStreamsCount++;
+      })
+      call.on('close',()=>{
+        videoDom.remove();
+        remoteStreamsCount--;
+      })
+      peers[call.peer] = call;
+    })
+  })
+}
+
+window.onload = function(){
+  if(urlParams.get('role') === "teacher"){
+    teacherStart();
+  }else{
+    initPeer();
+    joinBtn.onclick = ()=>{
+      studentStart(pwdInput.value);
+    }
+    roleTip.innerText="👩‍🎓学生端，请输入课堂密码加入";
+  }
+}
+</script>
+</body>
+</html>
